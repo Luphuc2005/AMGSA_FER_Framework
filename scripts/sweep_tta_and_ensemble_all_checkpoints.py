@@ -104,6 +104,11 @@ def parse_args():
         default=None,
         help="Path to save summary JSON report",
     )
+    parser.add_argument(
+        "--cpu",
+        action="store_true",
+        help="Force execution strictly on CPU (CUDA_VISIBLE_DEVICES=-1)",
+    )
     return parser.parse_args()
 
 
@@ -470,6 +475,22 @@ def main():
     for i, (c, source) in enumerate(collected_ckpts, 1):
         print(f"   [{i}/{num_ckpts}] {c.name:<10} (Source: {source})")
     print("=" * 85)
+
+    is_cpu = bool(
+        getattr(args, "cpu", False)
+        or os.environ.get("CUDA_VISIBLE_DEVICES") == "-1"
+        or len(tf.config.list_physical_devices("GPU")) == 0
+    )
+    if is_cpu:
+        os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+        cfg["runtime"]["allow_cpu_fallback"] = True
+        cfg["runtime"]["min_gpus"] = 0
+        cfg["runtime"]["use_mixed_precision"] = False
+        try:
+            tf.config.set_visible_devices([], "GPU")
+            tf.keras.mixed_precision.set_global_policy("float32")
+        except Exception:
+            pass
 
     configure_tensorflow_runtime(cfg)
     configure_gpus(cfg)
