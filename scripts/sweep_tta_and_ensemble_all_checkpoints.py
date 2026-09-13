@@ -37,7 +37,7 @@ import numpy as np
 import tensorflow as tf
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
 
-from config import load_config
+from config import load_config, resolve_auto_increment_output_dir
 from datasets.fer2013 import build_datasets, EMOTION_NAMES
 from train import build_model, configure_gpus, configure_tensorflow_runtime, get_class_names
 
@@ -399,6 +399,8 @@ def run_massive_combinatorial_sweep(
 def main():
     args = parse_args()
     cfg = load_config(args.config)
+    if not args.exp_dir:
+        resolve_auto_increment_output_dir(cfg, for_eval=True)
     output_dir = Path(args.exp_dir) if args.exp_dir else Path(cfg["paths"]["output_dir"])
 
     collected_ckpts: List[Tuple[Path, str]] = []
