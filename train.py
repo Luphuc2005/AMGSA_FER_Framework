@@ -1393,6 +1393,10 @@ def main() -> int:
     prev_lr_scales: Optional[Dict[str, float]] = None
     gate_collapse_consecutive_epochs: int = 0
     severe_overfit_counter: int = 0
+    overfit_gap_consecutive_epochs: int = 0
+    overfit_gap_first_epoch: Optional[int] = None
+    best_frozen_val_acc: float = 0.0
+    unfreeze_drop_consecutive_epochs: int = 0
 
     def _build_step_functions(grad_mask, lr_scales):
         """Build train step functions with the given gradient mask."""
@@ -1868,13 +1872,35 @@ def main() -> int:
                 stage_lrs[s] = backbone_lr if train_backbone else 0.0
 
         gate_temp = getattr(model, "get_granularity_gate_temperature", lambda: 1.0)()
-        gen_gap = float(train_acc - float(val_metrics.get("accuracy", 0.0)))
-        if gen_gap > 0.12:
+        current_val_acc = float(val_metrics.get("accuracy", 0.0))
+        gen_gap = float(train_acc - current_val_acc)
+        
+        # Overfit early stopping checks
+        early_stop_on_overfit = bool(cfg["training"].get("early_stop_on_overfit", False))
+        overfit_gap_threshold = float(cfg["training"].get("overfit_gap_threshold", 0.12))
+        overfit_gap_patience = int(cfg["training"].get("overfit_gap_patience", 3))
+        unfreeze_drop_threshold = float(cfg["training"].get("unfreeze_drop_threshold", 0.04))
+
+        if gen_gap > overfit_gap_threshold:
+            overfit_gap_consecutive_epochs += 1
+            if overfit_gap_first_epoch is None:
+                overfit_gap_first_epoch = epoch + 1
             print(
-                f"[OVERFIT_WARNING] Epoch {epoch+1}: generalization_gap={gen_gap:.4f} > 0.12 "
-                f"(train_acc={train_acc:.4f}, val_acc={float(val_metrics.get('accuracy', 0.0)):.4f})",
+                f"[OVERFIT_WARNING] Epoch {epoch+1}: generalization_gap={gen_gap:.4f} > {overfit_gap_threshold} "
+                f"(consecutive={overfit_gap_consecutive_epochs}/{overfit_gap_patience}, train_acc={train_acc:.4f}, val_acc={current_val_acc:.4f})",
                 flush=True,
             )
+            if early_stop_on_overfit and overfit_gap_consecutive_epochs >= overfit_gap_patience:
+                print(
+                    f"\n[EARLY_STOP_OVERFIT] Stopping early! Generalization gap > {overfit_gap_threshold} "
+                    f"for {overfit_gap_consecutive_epochs} consecutive epochs. Overfitting started at Epoch {overfit_gap_first_epoch}.\n",
+                    flush=True,
+                )
+                break
+        else:
+            overfit_gap_consecutive_epochs = 0
+            overfit_gap_first_epoch = None
+
         if gen_gap > 0.18:
             severe_overfit_counter += 1
             if severe_overfit_counter >= 3:
@@ -1884,6 +1910,42 @@ def main() -> int:
                 )
         else:
             severe_overfit_counter = 0
+
+        # Unfreeze drop monitoring
+        freeze_epochs_cfg = int(cfg["model"].get("freeze_backbone_epochs", 0) or 0)
+        if epoch < freeze_epochs_cfg:
+            best_frozen_val_acc = max(best_frozen_val_acc, current_val_acc)
+        elif early_stop_on_overfit and best_frozen_val_acc > 0.0:
+            if current_val_acc < best_frozen_val_acc - unfreeze_drop_threshold:
+                unfreeze_drop_consecutive_epochs += 1
+                print(
+                    f"[UNFREEZE_DROP_WARNING] Epoch {epoch+1}: val_accuracy dropped to {current_val_acc:.4f} "
+                    f"(frozen peak was {best_frozen_val_acc:.4f}, drop={best_frozen_val_acc - current_val_acc:.4f} > {unfreeze_drop_threshold:.4f}, consecutive={unfreeze_drop_consecutive_epochs}/2)",
+                    flush=True,
+                )
+                if unfreeze_drop_consecutive_epochs >= 2:
+                    print(
+                        f"\n[EARLY_STOP_UNFREEZE_DROP] Stopping early! Val accuracy dropped sharply after unfreeze: "
+                        f"{current_val_acc:.4f} vs frozen peak {best_frozen_val_acc:.4f}. Overfitting started after unfreeze at Epoch {freeze_epochs_cfg+1}.\n",
+                        flush=True,
+                    )
+                    break
+            else:
+                unfreeze_drop_consecutive_epochs = 0
+
+        # Log per-class Recall and F1 for all classes
+        cls_rep = val_metrics.get("classification_report", {})
+        if isinstance(cls_rep, dict):
+            per_class_parts = []
+            for c_name in get_class_names(cfg):
+                if c_name in cls_rep:
+                    c_rec = float(cls_rep[c_name].get("recall", 0.0))
+                    c_f1 = float(cls_rep[c_name].get("f1-score", 0.0))
+                    row[f"val_{c_name}_recall"] = round(c_rec, 4)
+                    row[f"val_{c_name}_f1"] = round(c_f1, 4)
+                    per_class_parts.append(f"{c_name[:4]}:R={c_rec:.2f}/F1={c_f1:.2f}")
+            if per_class_parts:
+                print("  [Per-Class Rec/F1] " + " | ".join(per_class_parts), flush=True)
 
         row["generalization_gap"] = round(gen_gap, 4)
         row["gate_temperature"] = gate_temp
