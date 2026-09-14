@@ -144,8 +144,8 @@ stage_transition:
   enable_2stage_switching: false
 
 training:
-  epochs: 60
-  patience: 20
+  epochs: 80
+  patience: 80
   warmup_epochs: 5
   loss: "cross_entropy"
   label_smoothing: 0.10

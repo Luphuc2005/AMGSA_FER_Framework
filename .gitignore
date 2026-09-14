@@ -37,3 +37,10 @@ MISSING_PACKAGES.txt
 
 # Runnable V5 LGSA + R-Drop experiment documentation
 !scripts/README_rafdb_v5_lgsa_rdrop.md
+
+# Archives, handoff folders and temp files
+*.zip
+*.docx
+/AMGSA_FER_HANDOFF/
+/AMGSA_FER_HANDOFF_PATCH_01/
+/figures/

@@ -2,7 +2,7 @@ seed:
   random_seed: 42
 
 source:
-  note: "RAF-DB Ablation Stage 4: Dynamic Part-Aware Attention + Sample-Adaptive Granularity Weighting Gate + Adaptive Fusion Gate alpha(x)."
+  note: "RAF-DB Ablation Stage 4: SigLIP2 Multi-Granularity Prototypes + Sample-Adaptive Granularity Weighting Gate."
 
 runtime:
   gpu_ids: [0]
@@ -75,17 +75,11 @@ model:
   use_clip_semantic: true
   multi_prototype: true
 
-  # CẢI TIẾN 1: Dynamic Part-Aware Attention (Stage 3)
-  use_dynamic_part_attention: true
-  dynamic_part_bottleneck: 128
-  use_soft_regional_pooling: false
-
-  # CẢI TIẾN 2: Sample-Adaptive Logit Fusion Gate alpha(x) (Stage 4)
-  use_adaptive_fusion_gate: true
-  adaptive_fusion_max_alpha: 0.20
-
-  # Sample-adaptive granularity weighting across 5 prototypes
+  # Sample-Adaptive Granularity Weighting Gate across 5 prototypes
   use_adaptive_granularity: true
+  use_dynamic_part_attention: false
+  use_adaptive_fusion_gate: false
+  use_soft_regional_pooling: false
 
   # Without hard contrastive semantic loss
   use_hard_semantic_loss: false

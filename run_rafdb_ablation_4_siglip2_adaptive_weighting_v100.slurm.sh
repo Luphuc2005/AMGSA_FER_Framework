@@ -23,7 +23,7 @@ FER_PY="/home/ptbao/projects/FER2013_MGR_CNN/fer2013_env/bin/python"
 CONFIG="$ROOT/config_rafdb_ablation_4_siglip2_adaptive_weighting.yaml"
 
 echo "============================================================"
-echo " RAF-DB Ablation Stage 4: Part-Aware Attention + Adaptive Weighting & Gate"
+echo " RAF-DB Ablation Stage 4: Multi-Granularity + Adaptive Weighting Gate"
 echo " Output: outputs/ablation/rafdb/ablation_4_siglip2_adaptive_weighting"
 echo "============================================================"
 echo "Job ID: ${SLURM_JOB_ID:-standalone}"
