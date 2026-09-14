@@ -273,7 +273,7 @@ def _decode_expw_image(image_path_tensor: tf.Tensor, bbox_tensor: tf.Tensor, ima
                     cropped = img
                 if cropped.shape[-1] == 1 and channels == 3:
                     cropped = tf.image.grayscale_to_rgb(cropped)
-                return tf.image.resize(cropped, [target_h, target_w], method="bilinear")
+                return tf.image.resize(cropped, (target_h, target_w), method="bilinear")
             except Exception:
                 pass
 

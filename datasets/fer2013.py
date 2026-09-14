@@ -316,7 +316,7 @@ def _decode_pixels(pixels: tf.Tensor, image_size: int, channels: int) -> tf.Tens
                     img = tf.cast(img, tf.float32)
                     if img.shape[-1] == 1 and channels == 3:
                         img = tf.image.grayscale_to_rgb(img)
-                    return tf.image.resize(img, [target_h, target_w], method="bilinear")
+                    return tf.image.resize(img, (target_h, target_w), method="bilinear")
             except OSError:
                 pass
         
@@ -326,7 +326,7 @@ def _decode_pixels(pixels: tf.Tensor, image_size: int, channels: int) -> tf.Tens
             side = int(np.round(np.sqrt(len(vals))))
             img = vals.reshape(side, side, 1)
             img = tf.cast(img, tf.float32)
-            img = tf.image.resize(img, [target_h, target_w], method="bilinear")
+            img = tf.image.resize(img, (target_h, target_w), method="bilinear")
             if channels == 3:
                 img = tf.image.grayscale_to_rgb(img)
             return img
@@ -338,7 +338,7 @@ def _decode_pixels(pixels: tf.Tensor, image_size: int, channels: int) -> tf.Tens
         return image
     else:
         image = tf.reshape(tf.cast(pixels, tf.float32), [48, 48, 1])
-        image = tf.image.resize(image, [target_h, target_w], method="bilinear")
+        image = tf.image.resize(image, (target_h, target_w), method="bilinear")
         if channels == 3:
             image = tf.image.grayscale_to_rgb(image)
         return image
@@ -371,7 +371,7 @@ def _load_mask_npy(mask_path: tf.Tensor, *, allow_missing: bool = False) -> tf.T
 def _resize_mask(mask: tf.Tensor, grid_size: int, method: str = "area") -> tf.Tensor:
     mask = tf.transpose(mask, [1, 2, 0])
     if mask.shape[0] != grid_size or mask.shape[1] != grid_size:
-        mask = tf.image.resize(mask, [grid_size, grid_size], method=method)
+        mask = tf.image.resize(mask, (grid_size, grid_size), method=method)
     return tf.clip_by_value(mask, 0.0, 1.0)
 
 
