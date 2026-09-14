@@ -1429,6 +1429,17 @@ def main() -> int:
     )
     history = []
     csv_path = run_dir / "training_history.csv"
+    if is_resume and csv_path.exists():
+        try:
+            import csv as py_csv
+            with csv_path.open("r", encoding="utf-8") as f:
+                reader = py_csv.DictReader(f)
+                for row in reader:
+                    if int(row.get("epoch", 0)) <= start_epoch:
+                        history.append(dict(row))
+            print(f"[RESUME] Loaded {len(history)} previous history rows from {csv_path}", flush=True)
+        except Exception as e:
+            print(f"[RESUME_WARNING] Failed to load previous history: {e}", flush=True)
     best_manager = RankedCheckpointManager(
         checkpoint=checkpoint,
         directory=checkpoint_root / "best",

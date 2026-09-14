@@ -92,6 +92,7 @@ def print_and_verify_diff(base_path: Path, cand_path: Path):
         "training.max_to_keep_macro",
         "training.save_best_macro_f1",
         "training.mode",
+        "training.resume",
     }
 
     unintended_diffs = []
@@ -144,9 +145,8 @@ def verify_candidate_contract(cand_path: Path):
     assert aug_cfg["brightness_delta"] == 0.15, "Must keep baseline brightness 0.15"
     assert aug_cfg["random_erasing_prob"] == 0.40, "Must keep baseline erasing prob 0.40"
     assert data_cfg.get("sampling_strategy") in (None, "", "null"), "Must NOT use oversampling"
-    assert training_cfg.get("early_stop_on_overfit") is True
-    assert training_cfg.get("overfit_gap_threshold") == 0.12
-    assert training_cfg.get("overfit_gap_patience") == 3
+    assert training_cfg.get("early_stop_on_overfit") is False, "Early stopping on overfit is disabled for full training"
+    assert training_cfg.get("resume") is True, "Resume must be enabled to continue training"
 
     print("\n[OK] All Candidate Contract Assertions Passed!")
 
