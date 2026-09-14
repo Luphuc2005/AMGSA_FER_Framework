@@ -25,8 +25,8 @@ runtime:
 tta:
   enabled: true
   hflip: true
-  original_weight: 0.50
-  flip_weight: 0.50
+  original_weight: 0.40
+  flip_weight: 0.60
 
 data:
   data_path: "/kaggle/input/datasets/doduyquynii/fer13-split/fer13-split"
@@ -162,6 +162,10 @@ training:
   grad_clip_norm: 1.0
   skip_nonfinite_batches: true
   monitor: "val_accuracy"
+  max_to_keep_acc: 5
+  max_to_keep_loss: 5
+  save_best_macro_f1: true
+  max_to_keep_macro: 5
   resume: true
   best_checkpoint_start_epoch: 1
   periodic_checkpoint_interval: 10

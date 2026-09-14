@@ -1305,6 +1305,23 @@ def main() -> int:
         (run_dir / "effective_config.json").write_text(
             json.dumps(cfg, indent=2), encoding="utf-8"
         )
+    if cfg["training"].get("logit_adjustment", {}).get("enabled", False):
+        from utils.logit_adjustment import configure_training_logit_adjustment
+        data_path = Path(cfg["data"]["data_path"])
+        train_csv = data_path / "train.csv"
+        if train_csv.exists():
+            import pandas as pd
+            df_train = pd.read_csv(train_csv)
+            train_labels = df_train["label"].values.astype(np.int64)
+        else:
+            train_labels = np.array([lbl.numpy() for _, lbl in train_ds.unbatch()], dtype=np.int64)
+        configure_training_logit_adjustment(cfg, train_labels)
+        (run_dir / "logit_adjustment_report.json").write_text(
+            json.dumps(cfg["training"]["resolved_logit_adjustment_report"], indent=2), encoding="utf-8"
+        )
+        (run_dir / "effective_config.json").write_text(
+            json.dumps(cfg, indent=2), encoding="utf-8"
+        )
 
     with strategy.scope():
         model = build_model(cfg)
@@ -1430,6 +1447,11 @@ def main() -> int:
     prev_trainable_stages: Optional[List[int]] = None  # Track stage transitions
     prev_lr_scales: Optional[Dict[str, float]] = None
     gate_collapse_consecutive_epochs: int = 0
+    severe_overfit_counter: int = 0
+    overfit_gap_consecutive_epochs: int = 0
+    overfit_gap_first_epoch: Optional[int] = None
+    best_frozen_val_acc: float = 0.0
+    unfreeze_drop_consecutive_epochs: int = 0
 
     def _build_step_functions(grad_mask, lr_scales):
         """Build train step functions with the given gradient mask."""
@@ -1462,6 +1484,17 @@ def main() -> int:
     )
     history = []
     csv_path = run_dir / "training_history.csv"
+    if is_resume and csv_path.exists():
+        try:
+            import csv as py_csv
+            with csv_path.open("r", encoding="utf-8") as f:
+                reader = py_csv.DictReader(f)
+                for row in reader:
+                    if int(row.get("epoch", 0)) <= start_epoch:
+                        history.append(dict(row))
+            print(f"[RESUME] Loaded {len(history)} previous history rows from {csv_path}", flush=True)
+        except Exception as e:
+            print(f"[RESUME_WARNING] Failed to load previous history: {e}", flush=True)
     best_manager = RankedCheckpointManager(
         checkpoint=checkpoint,
         directory=checkpoint_root / "best",
@@ -1484,11 +1517,12 @@ def main() -> int:
         or bool(cfg["training"].get("save_best_macro_f1", False))
     )
     if _create_macro_mgr:
+        max_to_keep_macro = int(cfg["training"].get("max_to_keep_macro", 5))
         macro_manager = RankedCheckpointManager(
             checkpoint=checkpoint, directory=checkpoint_root / "best_macro_f1",
-            max_to_keep=1, metric_name="val_macro_f1", mode="max", history_csv=csv_path,
+            max_to_keep=max_to_keep_macro, metric_name="val_macro_f1", mode="max", history_csv=csv_path,
         )
-        print("[CHECKPOINT] Best Macro-F1 checkpoint manager enabled", flush=True)
+        print(f"[CHECKPOINT] Best Macro-F1 checkpoint manager enabled (max_to_keep={max_to_keep_macro})", flush=True)
     progress_interval = int(cfg["training"].get("progress_interval", 0) or 0)
     periodic_interval = int(cfg["training"].get("periodic_checkpoint_interval", 10) or 0)
     eval_strategy = strategy if bool(cfg["runtime"].get("distributed_eval", False)) else None
@@ -1699,20 +1733,16 @@ def main() -> int:
         gate_entropy = total_entropy_sum / n_samples
         gate_max_alpha = float(max_gate_alpha)
 
-        # Collapse check: warn if any weight > 0.90
-        any_weight_above_90 = False
-        for k_idx, gw_m in enumerate(gw_means):
-            if gw_m > 0.90:
-                any_weight_above_90 = True
-                print(
-                    f"[WARNING] Granularity weight {k_idx} mean ({gw_m:.4f}) > 0.90 at Epoch {epoch+1}! Gate may be collapsing.",
-                    flush=True,
-                )
-        if any_weight_above_90:
+        # Collapse check: warn if mean max gate weight > 0.85 or gate entropy < 0.80
+        max_gw_mean = float(np.max(gw_means))
+        gate_collapsed = max_gw_mean > 0.85 or gate_entropy < 0.80
+        if gate_collapsed:
             gate_collapse_consecutive_epochs += 1
             if gate_collapse_consecutive_epochs >= 2:
                 print(
-                    f"[GATE_COLLAPSE_WARNING] Gate weight mean > 0.90 for {gate_collapse_consecutive_epochs} consecutive epochs (Epoch {epoch+1})! Means: {np.round(gw_means, 4).tolist()}",
+                    f"[GATE_COLLAPSE_WARNING] Mean max gate weight ({max_gw_mean:.4f} > 0.85) or "
+                    f"gate entropy ({gate_entropy:.4f} < 0.80) for {gate_collapse_consecutive_epochs} "
+                    f"consecutive epochs (Epoch {epoch+1})! Means: {np.round(gw_means, 4).tolist()}",
                     flush=True,
                 )
         else:
@@ -1780,8 +1810,6 @@ def main() -> int:
                         epoch=epoch + 1, metric=float(val_metrics["macro_f1"]),
                         metrics={"val_accuracy": val_acc_val, "val_loss": val_loss_val},
                     )
-                    if macro_decision["saved"]:
-                        print(f"[BEST_MACRO_F1] Saved ckpt-{epoch+1}: val_macro_f1={val_metrics['macro_f1']:.8f}", flush=True)
                 acc_decision = best_manager.consider(
                     epoch=epoch + 1,
                     metric=val_acc_val,
@@ -1792,10 +1820,13 @@ def main() -> int:
                     metric=val_loss_val,
                     metrics={"val_accuracy": val_acc_val, "val_loss": val_loss_val},
                 )
-                for label, metric_value, decision in (
+                decision_candidates = [
                     ("TOP5_ACC", val_acc_val, acc_decision),
                     ("TOP5_LOSS", val_loss_val, loss_decision),
-                ):
+                ]
+                if macro_manager is not None:
+                    decision_candidates.append(("TOP5_MACRO_F1", float(val_metrics["macro_f1"]), macro_decision))
+                for label, metric_value, decision in decision_candidates:
                     if decision["saved"]:
                         removed = decision.get("removed")
                         removed_text = (
@@ -1871,6 +1902,7 @@ def main() -> int:
             "gw_std_3": float(gw_stds[3]),
             "gw_std_4": float(gw_stds[4]),
             "gate_max_alpha": gate_max_alpha,
+            "max_gate_weight": gate_max_alpha,
             "gate_entropy": float(gate_entropy),
             "lr_head": lr,
             "lr_backbone": backbone_lr,
@@ -1887,6 +1919,107 @@ def main() -> int:
             "val_ece": float(val_metrics.get("ece", 0.0)),
             "val_nll": float(val_metrics.get("nll", val_metrics.get("loss", 0.0))),
         }
+        # Compute Stage LRs for logging
+        stage_lrs = {}
+        for s in [1, 2, 3, 4]:
+            if prog_unfreeze_enabled:
+                if s in current_stages:
+                    mult = 1.0
+                    if current_lr_scales and backbone_vars:
+                        mult = current_lr_scales.get(next(
+                            (variable_key(v) for v in backbone_vars
+                             if _var_belongs_to_stage(getattr(v, "name", ""), s)),
+                            None,
+                        ), 1.0)
+                    stage_lrs[s] = backbone_lr * mult
+                else:
+                    stage_lrs[s] = 0.0
+            else:
+                stage_lrs[s] = backbone_lr if train_backbone else 0.0
+
+        gate_temp = getattr(model, "get_granularity_gate_temperature", lambda: 1.0)()
+        current_val_acc = float(val_metrics.get("accuracy", 0.0))
+        gen_gap = float(train_acc - current_val_acc)
+        
+        # Overfit early stopping checks
+        early_stop_on_overfit = bool(cfg["training"].get("early_stop_on_overfit", False))
+        overfit_gap_threshold = float(cfg["training"].get("overfit_gap_threshold", 0.12))
+        overfit_gap_patience = int(cfg["training"].get("overfit_gap_patience", 3))
+        unfreeze_drop_threshold = float(cfg["training"].get("unfreeze_drop_threshold", 0.04))
+
+        if gen_gap > overfit_gap_threshold:
+            overfit_gap_consecutive_epochs += 1
+            if overfit_gap_first_epoch is None:
+                overfit_gap_first_epoch = epoch + 1
+            print(
+                f"[OVERFIT_WARNING] Epoch {epoch+1}: generalization_gap={gen_gap:.4f} > {overfit_gap_threshold} "
+                f"(consecutive={overfit_gap_consecutive_epochs}/{overfit_gap_patience}, train_acc={train_acc:.4f}, val_acc={current_val_acc:.4f})",
+                flush=True,
+            )
+            if early_stop_on_overfit and overfit_gap_consecutive_epochs >= overfit_gap_patience:
+                print(
+                    f"\n[EARLY_STOP_OVERFIT] Stopping early! Generalization gap > {overfit_gap_threshold} "
+                    f"for {overfit_gap_consecutive_epochs} consecutive epochs. Overfitting started at Epoch {overfit_gap_first_epoch}.\n",
+                    flush=True,
+                )
+                break
+        else:
+            overfit_gap_consecutive_epochs = 0
+            overfit_gap_first_epoch = None
+
+        if gen_gap > 0.18:
+            severe_overfit_counter += 1
+            if severe_overfit_counter >= 3:
+                print(
+                    f"[SEVERE_OVERFIT_WARNING] Epoch {epoch+1}: generalization_gap > 0.18 for {severe_overfit_counter} consecutive epochs! (gap={gen_gap:.4f})",
+                    flush=True,
+                )
+        else:
+            severe_overfit_counter = 0
+
+        # Unfreeze drop monitoring
+        freeze_epochs_cfg = int(cfg["model"].get("freeze_backbone_epochs", 0) or 0)
+        if epoch < freeze_epochs_cfg:
+            best_frozen_val_acc = max(best_frozen_val_acc, current_val_acc)
+        elif early_stop_on_overfit and best_frozen_val_acc > 0.0:
+            if current_val_acc < best_frozen_val_acc - unfreeze_drop_threshold:
+                unfreeze_drop_consecutive_epochs += 1
+                print(
+                    f"[UNFREEZE_DROP_WARNING] Epoch {epoch+1}: val_accuracy dropped to {current_val_acc:.4f} "
+                    f"(frozen peak was {best_frozen_val_acc:.4f}, drop={best_frozen_val_acc - current_val_acc:.4f} > {unfreeze_drop_threshold:.4f}, consecutive={unfreeze_drop_consecutive_epochs}/2)",
+                    flush=True,
+                )
+                if unfreeze_drop_consecutive_epochs >= 2:
+                    print(
+                        f"\n[EARLY_STOP_UNFREEZE_DROP] Stopping early! Val accuracy dropped sharply after unfreeze: "
+                        f"{current_val_acc:.4f} vs frozen peak {best_frozen_val_acc:.4f}. Overfitting started after unfreeze at Epoch {freeze_epochs_cfg+1}.\n",
+                        flush=True,
+                    )
+                    break
+            else:
+                unfreeze_drop_consecutive_epochs = 0
+
+        # Log per-class Recall and F1 for all classes
+        cls_rep = val_metrics.get("classification_report", {})
+        if isinstance(cls_rep, dict):
+            per_class_parts = []
+            for c_name in get_class_names(cfg):
+                if c_name in cls_rep:
+                    c_rec = float(cls_rep[c_name].get("recall", 0.0))
+                    c_f1 = float(cls_rep[c_name].get("f1-score", 0.0))
+                    row[f"val_{c_name}_recall"] = round(c_rec, 4)
+                    row[f"val_{c_name}_f1"] = round(c_f1, 4)
+                    per_class_parts.append(f"{c_name[:4]}:R={c_rec:.2f}/F1={c_f1:.2f}")
+            if per_class_parts:
+                print("  [Per-Class Rec/F1] " + " | ".join(per_class_parts), flush=True)
+
+        row["generalization_gap"] = round(gen_gap, 4)
+        row["gate_temperature"] = gate_temp
+        row["lr_stage1"] = stage_lrs[1]
+        row["lr_stage2"] = stage_lrs[2]
+        row["lr_stage3"] = stage_lrs[3]
+        row["lr_stage4"] = stage_lrs[4]
+
         if cfg["training"].get("weighted_ce", {}).get("enabled", False):
             for class_name in ("fear", "disgust"):
                 class_metrics = val_metrics["classification_report"][class_name]
@@ -1917,15 +2050,14 @@ def main() -> int:
         gw_means_str = ",".join([f"{m:.3f}" for m in gw_means])
         print(
             f"Epoch {epoch+1}/{cfg['training']['epochs']} [{time_str}] "
-            f"loss={train_loss:.4f} sem_loss={train_sem_loss:.4f} weighted_sem_loss={row['train_weighted_sem_loss']:.4f} "
+            f"loss={train_loss:.4f} ce_loss={train_ce_loss:.4f} sem_loss={train_sem_loss:.4f} "
             f"hard_loss={train_hard_loss:.4f} acc={train_acc:.4f} sem_acc={train_sem_acc:.4f} "
             f"val_loss={row['val_loss']:.4f} val_acc={row['val_accuracy']:.4f} "
-            f"val_sem_loss={row['val_semantic_loss']:.4f} val_weighted_sem_loss={row['val_weighted_sem_loss']:.4f} "
-            f"val_sem_acc={row['val_semantic_accuracy']:.4f} lambda_sem={current_lambda_sem:.4f} "
-            f"val_macro_f1={row['val_macro_f1']:.4f} "
-            f"gw_means=[{gw_means_str}] ent={gate_entropy:.3f} max_alpha={gate_max_alpha:.3f} "
-            f"throughput={train_samples_per_sec:.1f} samples/s "
-            f"lr_head={lr:.6f} lr_backbone={backbone_lr:.6f} "
+            f"val_macro_f1={row['val_macro_f1']:.4f} val_weighted_f1={row['val_weighted_f1']:.4f} "
+            f"val_sem_loss={row['val_semantic_loss']:.4f} val_sem_acc={row['val_semantic_accuracy']:.4f} "
+            f"gap={gen_gap:.4f} "
+            f"T_gate={gate_temp} gw_means=[{gw_means_str}] ent={gate_entropy:.3f} max_gw={gate_max_alpha:.3f} "
+            f"lr_head={lr:.6f} S1_lr={stage_lrs[1]:.1e} S2_lr={stage_lrs[2]:.1e} S3_lr={stage_lrs[3]:.1e} S4_lr={stage_lrs[4]:.1e} "
             f"patience={patience_counter}/{patience_limit} "
             f"{monitor_name}={monitor:.4f}",
             flush=True,
