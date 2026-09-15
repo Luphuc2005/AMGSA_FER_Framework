@@ -289,7 +289,6 @@ def _decode_pixels(pixels: tf.Tensor, image_size: int, channels: int) -> tf.Tens
     target_h, target_w = int(image_size), int(image_size)
 
     def _read_image_or_pixels(p_tensor):
-        tf.print("DEBUG target_h:", target_h, "target_w:", target_w)
         p_str = p_tensor.numpy().decode("utf-8") if hasattr(p_tensor, "numpy") else str(p_tensor)
         # Avoid OSError: [Errno 36] File name too long when p_str is a pixel string
         if len(p_str) <= 255 and not (" " in p_str.strip() and p_str.strip().count(" ") > 3):
@@ -316,7 +315,7 @@ def _decode_pixels(pixels: tf.Tensor, image_size: int, channels: int) -> tf.Tens
                     img = tf.io.decode_image(img_raw, channels=channels, expand_animations=False)
                     img = tf.cast(img, tf.float32)
                     if img.shape[-1] == 1 and channels == 3:
-                        img = tf.tile(img, [1, 1, 3])
+                        img = tf.image.grayscale_to_rgb(img)
                     return tf.image.resize(img, (target_h, target_w), method="bilinear")
             except OSError:
                 pass
@@ -331,7 +330,7 @@ def _decode_pixels(pixels: tf.Tensor, image_size: int, channels: int) -> tf.Tens
             img = tf.image.resize(img, (target_h, target_w), method="bilinear")
             tf.print("DEBUG img after resize:", tf.shape(img))
             if channels == 3:
-                img = tf.tile(img, [1, 1, 3])
+                img = tf.image.grayscale_to_rgb(img)
             return img
         raise ValueError(f"Unable to parse image path or pixel string: {p_str[:50]}")
 
@@ -343,7 +342,7 @@ def _decode_pixels(pixels: tf.Tensor, image_size: int, channels: int) -> tf.Tens
         image = tf.reshape(tf.cast(pixels, tf.float32), [48, 48, 1])
         image = tf.image.resize(image, (target_h, target_w), method="bilinear")
         if channels == 3:
-            image = tf.tile(image, [1, 1, 3])
+            image = tf.image.grayscale_to_rgb(image)
         return image
 
 
