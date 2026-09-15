@@ -326,9 +326,7 @@ def _decode_pixels(pixels: tf.Tensor, image_size: int, channels: int) -> tf.Tens
             side = int(np.round(np.sqrt(len(vals))))
             img = vals.reshape(side, side, 1)
             img = tf.cast(img, tf.float32)
-            tf.print("DEBUG img before resize:", tf.shape(img))
             img = tf.image.resize(img, (target_h, target_w), method="bilinear")
-            tf.print("DEBUG img after resize:", tf.shape(img))
             if channels == 3:
                 img = tf.image.grayscale_to_rgb(img)
             return img
