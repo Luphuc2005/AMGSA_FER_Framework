@@ -288,7 +288,7 @@ def collect_split_records(
 def _decode_pixels(pixels: tf.Tensor, image_size: int, channels: int) -> tf.Tensor:
     target_h, target_w = int(image_size), int(image_size)
 
-    # @tf.autograph.experimental.do_not_convert
+    @tf.autograph.experimental.do_not_convert
     def _read_image_or_pixels(p_tensor):
         p_str = p_tensor.numpy().decode("utf-8") if hasattr(p_tensor, "numpy") else str(p_tensor)
         # Avoid OSError: [Errno 36] File name too long when p_str is a pixel string
