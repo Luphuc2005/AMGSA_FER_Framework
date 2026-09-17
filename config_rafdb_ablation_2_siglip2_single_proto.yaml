@@ -35,7 +35,7 @@ data:
   image_size: 112
   channels: 3
   normalize: true
-  predecode_pixels: false
+  predecode_pixels: true
   preload_masks: false
   allow_missing_masks: true
   use_clean_filter: false
