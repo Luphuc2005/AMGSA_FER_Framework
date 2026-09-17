@@ -5,11 +5,11 @@ source:
   note: "RAF-DB Ablation Stage 3: Multi-granularity text prototypes (5 levels: emotion, AU, upper-face, lower-face, combined) with static unweighted aggregation."
 
 runtime:
-  gpu_ids: [0]
-  batch_size_per_gpu: 16
+  gpu_ids: [0, 1]
+  batch_size_per_gpu: 32
   fallback_batch_size_per_gpu: 16
-  require_two_gpus: false
-  min_gpus: 1
+  require_two_gpus: true
+  min_gpus: 2
   memory_growth: true
   use_mixed_precision: true
   intra_op_threads: 16
@@ -29,7 +29,7 @@ tta:
   flip_weight: 0.50
 
 data:
-  data_path: "data/rafdb"
+  data_path: "/kaggle/input/datasets/nadkli/raf-db-split/raf_db_split"
   mask_dir: null
   num_classes: 7
   image_size: 112
@@ -62,7 +62,7 @@ model:
   name: "rafdb_ablation_3_siglip2_multigranularity"
   arch: "convnext_base_ms1m_arcface"
   pretrained: true
-  convnext_base_pretrained_path: "pretrained/convnext_base_ms1m_arcface.pth"
+  convnext_base_pretrained_path: "/kaggle/input/models/lhngphc/ms1m-pretrained/tensorflow2/default/1/convnext_base_ms1m_arcface.pth"
   convnext_base_require_pretrained: true
   drop_path_rate: 0.25
   layer_scale_init_value: 0.000001
