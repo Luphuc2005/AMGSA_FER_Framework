@@ -35,7 +35,7 @@ data:
   image_size: 112
   channels: 3
   normalize: true
-  predecode_pixels: false
+  predecode_pixels: true
   preload_masks: false
   allow_missing_masks: true
   use_clean_filter: false
@@ -148,7 +148,7 @@ training:
   max_to_keep_loss: 5
   save_best_macro_f1: true
   max_to_keep_macro: 5
-  resume: false
+  resume: true
   best_checkpoint_start_epoch: 1
   periodic_checkpoint_interval: 10
   progress_interval: 100
