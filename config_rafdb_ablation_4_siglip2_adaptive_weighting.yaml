@@ -144,10 +144,10 @@ training:
   skip_nonfinite_batches: true
   monitor: "val_accuracy"
   mode: "max"
-  max_to_keep_acc: 5
-  max_to_keep_loss: 5
+  max_to_keep_acc: 3
+  max_to_keep_loss: 3
   save_best_macro_f1: true
-  max_to_keep_macro: 5
+  max_to_keep_macro: 3
   resume: true
   best_checkpoint_start_epoch: 1
   periodic_checkpoint_interval: 10
