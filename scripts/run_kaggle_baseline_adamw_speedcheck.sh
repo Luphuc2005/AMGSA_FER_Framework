@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONFIG="config_rafdb_ablation_3_siglip2_multigranularity.yaml"
+CONFIG="config_rafdb_ablation_4_siglip2_adaptive_weighting.yaml"
 LOG_DIR="outputs/kaggle_speedcheck_logs"
 mkdir -p "$LOG_DIR"
 
