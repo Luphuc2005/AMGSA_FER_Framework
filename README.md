@@ -1,93 +1,85 @@
-# FER2013_MGR_CNN
+# AMGSA-FER: Adaptive Multi-Granularity Semantic Alignment for Facial Expression Recognition
 
-TensorFlow MGR-CNN C-Relation training package for FER2013_SGU.
+[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![TensorFlow 2.10](https://img.shields.io/badge/TensorFlow-2.10.1-orange.svg?logo=tensorflow&logoColor=white)](https://www.tensorflow.org/)
+[![VLM SigLIP 2](https://img.shields.io/badge/VLM-Google%20SigLIP%202-purple.svg)](https://huggingface.co/google/siglip2-base-patch16-224)
+[![Backbone ConvNeXt-B](https://img.shields.io/badge/Backbone-ConvNeXt--Base%20(MS1M)-green.svg)](https://github.com/facebookresearch/ConvNeXt)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Ban nay chay bang TensorFlow/Keras, port theo cau hinh C-relation:
+Mã nguồn chính thức của **AMGSA-FER** (*Adaptive Multi-Granularity Semantic Alignment with Google SigLIP 2*).
 
-```text
-configs/paper_ablation_strong/c_cnn_region_logits_080_020_imagenet_sam_cosine_seed42_relation_noclean_batch16_kaggle.yaml
-```
+---
 
-Ket qua PyTorch goc da ghi nhan:
+## 📊 Kết quả Thực nghiệm (Benchmark Results)
 
-- no-TTA: 74.1711%
-- TTA hflip: 74.3383%
+### 1. Số lượng Mẫu & Kết quả trên các Datasets
 
-Project khong tu cai Anaconda, Python, CUDA, cuDNN hay TensorFlow. May da co moi truong san thi chi can chay script.
+| Dataset | Số lượng ảnh (Tấm) | Phân chia (Train / Val / Test) | Số lớp | Kết quả AMGSA-FER (Ours) |
+| :--- | :---: | :--- | :---: | :---: |
+| **FER2013** | **35,887** | 28,709 / 3,589 / 3,589 | 7 | **76.68%** |
+| **RAF-DB** | **15,339** | 12,271 / 3,068 | 7 | **91.04%** |
+| **FERPlus** | **35,887** | 28,709 / 3,589 / 3,589 | 8 | **89.61%** |
+| **ExpW** | **91,793** | ~73,434 / ~18,359 | 7 | **74.42%** |
+| **AffectNet** | **287,401** | 283,901 / 3,500 | 7 | **65.80%*** |
 
-## Chay Training
+*\* Ghi chú: Ký hiệu `*` trên AffectNet biểu thị giao thức chuẩn 7 lớp (AffectNet-7).*
 
-```bash
-cd /path/to/FER2013_SGU
-chmod +x run_train.sh run_train_single_gpu.sh run_eval.sh
-bash run_train.sh
-```
+### 2. Bảng Đối chiếu Paper (Comparative SOTA)
 
-Mac dinh `run_train.sh` phu hop may Linux 2 GPU ~6GB/GPU va bam theo file C-relation batch16:
-batch `8/GPU`, global batch `16`, fallback `4/GPU`, full dataset, preload pixel/mask va khong cache.
+| Method | Year | FER2013 | RAF-DB | FERPlus | ExpW | AffectNet-7* |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **AMGSA-FER (Ours)** | **2026** | **76.68** | **91.04** | **89.61** | **74.42** | **65.80\*** |
 
-Neu data/mask nam o path rieng tren may giang vien:
 
-```bash
-MGR_DATA_PATH="/duong/dan/fer13-split" \
-MGR_MASK_DIR="/duong/dan/mediapipe_region_masks" \
-bash run_train.sh
-```
+---
 
-Neu chi muon dung 1 GPU:
-
-```bash
-bash run_train_single_gpu.sh
-```
-
-## Chay Kaggle 2 GPU
-
-Gan 2 Kaggle Dataset input nay vao notebook:
-
-- `/kaggle/input/datasets/doduyquynii/fer13-split`
-- `/kaggle/input/datasets/lhongphuc2/mediapipe-mask-datasets-35887`
-
-Chay:
-
-```bash
-chmod +x run_train_kaggle_2gpu.sh
-bash run_train_kaggle_2gpu.sh
-```
-
-Mac dinh Kaggle launcher dung 2 GPU, batch `16/GPU`, global batch `32`, fallback `8/GPU`, bat final hflip TTA, full dataset, output vao `/kaggle/working/outputs/...`.
-Neu muon ha batch de tranh OOM:
-
-```bash
-MGR_PRIMARY_BATCH_SIZE_PER_GPU=8 MGR_FALLBACK_BATCH_SIZE_PER_GPU=4 bash run_train_kaggle_2gpu.sh
-```
-
-## Kiem Tra Moi Truong
-
-```bash
-python3 check_environment.py
-```
-
-Neu thieu thu vien, xem `MISSING_PACKAGES.txt`. Project khong tu dong cai thu vien.
-
-## File Chinh
-
-- `config.yaml`: cau hinh TensorFlow port theo C-relation
-- `train.py`: training loop TensorFlow voi `MirroredStrategy`
-- `evaluate.py`: danh gia checkpoint TensorFlow
-- `check_environment.py`: kiem tra Python, TensorFlow, GPU va package
-- `run_train.sh`: chay training 2 GPU
-- `run_train_single_gpu.sh`: chay training 1 GPU
-- `run_eval.sh`: danh gia val/test
-
-## Output
+## 📁 Cấu trúc Thư mục (Directory Structure)
 
 ```text
-logs/
-outputs/tf_runs/c_relation_tokens_080_020_tf/
-  checkpoints/
-    best/
-    last/
-    periodic/
-  training_history.csv
-  test_metrics.json
+FER2013_SGU/
+├── configs/            # File cấu hình YAML theo dataset (fer2013, rafdb, ferplus, affectnet, expw)
+├── runners/            # Scripts chạy Slurm cluster (*.slurm.sh) và Shell (*.sh)
+├── datasets/           # Pipeline nạp dữ liệu tf.data
+├── models/             # Kiến trúc ConvNeXt-Base MS1M + SigLIP 2 Semantic Branch
+├── losses/             # Loss (Label-smoothed CE + Confusion Hard Margin)
+├── docs/               # Tài liệu chi tiết phương pháp & ghi chú nghiên cứu
+├── pretrained/         # Trọng số pretrained & prototype cache SigLIP 2
+├── train.py            # Script huấn luyện chính
+├── evaluate.py         # Script đánh giá mô hình
+└── sweep_tta_weights.py# Quét trọng số TTA tối ưu
 ```
+
+---
+
+## 🚀 Hướng dẫn Sử dụng (Quick Start)
+
+### 1. Cài đặt môi trường
+```bash
+pip install -r requirements.txt
+python check_environment.py
+```
+
+### 2. Huấn luyện (Training)
+```bash
+# Huấn luyện FER2013
+python train.py --config config_convnext_base_ms1m_adaptive_siglip2_confusion.yaml
+
+# Huấn luyện RAF-DB
+python train.py --config configs/rafdb/config_rafdb_v11_champ_sota_93.yaml
+```
+*(Hệ thống tự động tìm đúng file trong thư mục `configs/` dù bạn truyền đường dẫn ngắn hay đầy đủ)*
+
+### 3. Đánh giá (Evaluation & TTA)
+```bash
+# Đánh giá checkpoint
+python evaluate.py --config config_convnext_base_ms1m_adaptive_siglip2_confusion.yaml
+
+# Quét trọng số Test-Time Augmentation (TTA)
+python sweep_tta_weights.py --config config_convnext_base_ms1m_adaptive_siglip2_confusion.yaml
+```
+
+---
+
+## 📜 License
+
+Dự án phát hành theo giấy phép [MIT License](LICENSE).

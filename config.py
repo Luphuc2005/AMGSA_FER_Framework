@@ -68,8 +68,25 @@ def _resolve_config_path(path: Optional[Union[str, Path]]) -> Path:
         return DEFAULT_CONFIG_PATH
     config_path = Path(path)
     if not config_path.is_absolute():
-        config_path = PROJECT_ROOT / config_path
-    return config_path
+        direct_path = PROJECT_ROOT / config_path
+    else:
+        direct_path = config_path
+
+    if direct_path.exists():
+        return direct_path
+
+    # Auto-resolve from configs directory if moved
+    target_name = Path(path).name
+    configs_root = PROJECT_ROOT / "configs"
+    if configs_root.exists():
+        matches = [p for p in configs_root.rglob(target_name) if p.is_file()]
+        if matches:
+            resolved = matches[0]
+            print(f"[INFO] Auto-resolved config path: '{path}' -> '{resolved.relative_to(PROJECT_ROOT)}'")
+            return resolved
+
+    return direct_path
+
 
 
 def validate_config(cfg: Dict[str, Any], config_path: Path) -> None:
